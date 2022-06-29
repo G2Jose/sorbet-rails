@@ -169,6 +169,37 @@ namespace :rails_rbi do
     end
   end
 
+  desc "Generate rbis for active_model_serializers. Pass serializer name to regenerate rbi for only the given serializers."
+  task serializers: :environment do |_t, args|
+    SorbetRails::Utils.rails_eager_load_all!
+    all_model_names = ActiveRecord::Base.descendants.map(&:name)
+    all_serializers = Set.new(ActiveModel::Serializer.descendants)
+    serializers_to_generate = if args.extras.size > 0
+                                args.extras.map { |m| Object.const_get(m) }
+                              else
+                                all_serializers
+                              end.select do |serializer_class|
+                                all_model_names.include? serializer_class.name.gsub("Serializer", "")
+                              end
+
+    available_class_names = Set.new(serializers_to_generate.map(&:name))
+
+    serializers_to_generate.each do |serializer_class|
+      serializer_class_name = serializer_class.to_s
+      begin
+        formatter = SorbetRails::SerializersRbiFormatter.new(serializer_class, available_class_names)
+        file_path = Rails.root.join("sorbet", "rails-rbi", "serializers", "#{serializer_class_name.underscore}.rbi")
+        FileUtils.mkdir_p(File.dirname(file_path))
+        File.write(file_path, formatter.generate_rbi)
+      rescue StandardError, NotImplementedError => e
+        puts "---"
+        puts "Error when handling serializer #{serializer_class_name}: #{e}"
+        nil
+      end
+    end
+  end
+
+
   def blacklisted_models
     blacklisted_models = []
     blacklisted_models << ApplicationRecord if defined?(ApplicationRecord)
